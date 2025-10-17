@@ -1,103 +1,107 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useState } from "react";
+import { EvmChainId, type SushiSwapV3ChainId } from "sushi/evm";
+import type { Address } from "viem";
+import { AddressInput, NetworkSelector } from "@/components";
+import { useV3Pool } from "@/hooks";
+
+export default function Page() {
+  const [address, setAddress] = useState<Address | undefined>();
+  const [network, setNetwork] = useState<SushiSwapV3ChainId>(
+    EvmChainId.ETHEREUM,
+  );
+
+  const { data } = useV3Pool({ chainId: network, address });
+
   return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+    <main className="min-h-screen flex items-center justify-center p-6 bg-gradient-to-b from-slate-50 to-white">
+      <div className="w-full max-w-3xl bg-white/90 dark:bg-slate-900/75 backdrop-blur-sm rounded-2xl shadow-lg border border-slate-100 dark:border-slate-800 p-6">
+        <header className="mb-6 text-center">
+          <h1 className="m-0 text-2xl sm:text-3xl font-semibold text-slate-800 dark:text-slate-100">
+            V3 Charts
+          </h1>
+          <p className="mt-1 text-sm text-slate-500 dark:text-slate-400">
+            Enter an address and select a network to view your liquidity charts.
+          </p>
+        </header>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+        <section className="flex gap-4 items-start flex-wrap h-[120px] mb-2">
+          <div className="flex flex-col min-w-[220px] flex-1">
+            <label
+              htmlFor="address"
+              className="text-xs mb-1.5 text-slate-600 dark:text-slate-400"
+            >
+              Address
+            </label>
+            <AddressInput
+              value={address}
+              onChange={setAddress}
+              className="w-full rounded-md border border-slate-200 dark:border-slate-700 px-3 py-2 focus:outline-none focus:ring-2 focus:ring-sky-300 dark:focus:ring-sky-600"
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
-    </div>
+          </div>
+
+          <div className="flex flex-col min-w-[220px] flex-1">
+            <label
+              htmlFor="network"
+              className="text-xs mb-1.5 text-slate-600 dark:text-slate-400"
+            >
+              Network
+            </label>
+            <NetworkSelector
+              value={network}
+              onChange={setNetwork}
+              className="w-full rounded-md border border-slate-200 dark:border-slate-700 px-3 py-2 bg-white dark:bg-slate-800 focus:outline-none focus:ring-2 focus:ring-sky-300 dark:focus:ring-sky-600"
+            />
+          </div>
+        </section>
+        <section className="min-h-[320px] flex flex-col gap-8">
+          <div className="flex flex-col min-w-[220px]">
+              <div className="text-xs mb-1.5 text-slate-600 dark:text-slate-400">
+                Pool
+              </div>
+              <div className="w-full rounded-md border border-slate-200 dark:border-slate-700 px-3 py-2 bg-white dark:bg-slate-800">
+                {data && data.token0 && data.token1 ? (
+                  <div className="flex flex-col">
+                    <div className="text-sm font-medium text-slate-800 dark:text-slate-100">
+                      {data.token0.symbol} / {data.token1.symbol}
+                    </div>
+                    <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      Fee:&nbsp;
+                      <span className="font-medium text-slate-700 dark:text-slate-200">
+                        {typeof data.fee === "number"
+                          ? `${(data.fee / 10000)
+                              .toFixed(2)
+                              .replace(/\.?0+$/, "")}%`
+                          : "—"}
+                      </span>
+                      <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                      Tick: {data.slot0?.tick}
+                    </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    No pool found
+                  </div>
+                )}
+              </div>
+            </div>
+          <div className="h-full border-2 border-dashed border-slate-200 dark:border-slate-700 rounded-lg flex items-center justify-center text-slate-400 dark:text-slate-500 p-6 text-center">
+            <div>
+              <p className="mb-2">
+                Charts will go here — waiting for your implementation.
+              </p>
+              <p className="text-xs text-slate-400">
+                Selected network:{" "}
+                <span className="font-medium text-slate-700 dark:text-slate-200">
+                  {network}
+                </span>
+              </p>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
   );
 }

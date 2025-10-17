@@ -1,0 +1,149 @@
+import { useQuery } from "@tanstack/react-query";
+import {
+  erc20Abi_decimals,
+  erc20Abi_symbol,
+  EvmToken,
+  SUSHISWAP_V3_FACTORY_ADDRESS,
+  sushiSwapV3PoolAbi_factory,
+  sushiSwapV3PoolAbi_fee,
+  sushiSwapV3PoolAbi_slot0,
+  sushiSwapV3PoolAbi_tickSpacing,
+  sushiSwapV3PoolAbi_token0,
+  sushiSwapV3PoolAbi_token1,
+  type SushiSwapV3ChainId,
+} from "sushi/evm";
+import { isAddressEqual } from "viem";
+import type { Address } from "viem/accounts";
+import { usePublicClient } from "wagmi";
+
+export const useV3Pool = ({
+  address,
+  chainId,
+}: {
+  address: Address | undefined;
+  chainId: SushiSwapV3ChainId;
+}) => {
+  const client = usePublicClient({ chainId });
+  return useQuery({
+    enabled: Boolean(address),
+    queryKey: ["v3-pool", address, chainId],
+    queryFn: async () => {
+      if (!address) throw new Error(null as never);
+      const poolMulticall = await client?.multicall({
+        contracts: [
+          {
+            address,
+            abi: sushiSwapV3PoolAbi_factory,
+            functionName: "factory",
+          },
+          {
+            address,
+            abi: sushiSwapV3PoolAbi_token0,
+            functionName: "token0",
+          },
+          {
+            address,
+            abi: sushiSwapV3PoolAbi_token1,
+            functionName: "token1",
+          },
+          {
+            address,
+            abi: sushiSwapV3PoolAbi_fee,
+            functionName: "fee",
+          },
+          {
+            address,
+            abi: sushiSwapV3PoolAbi_tickSpacing,
+            functionName: "tickSpacing",
+          },
+          {
+            address,
+            abi: sushiSwapV3PoolAbi_slot0,
+            functionName: "slot0"
+          }
+        ],
+      });
+
+      const factory = poolMulticall?.[0]?.result;
+      const isSushi = factory
+        ? isAddressEqual(factory, SUSHISWAP_V3_FACTORY_ADDRESS[chainId])
+        : undefined;
+
+      const token0Address = poolMulticall?.[1]?.result;
+      const token1Address = poolMulticall?.[2]?.result;
+
+      const fee = poolMulticall?.[3]?.result;
+      const tickSpacing = poolMulticall?.[4]?.result;
+      const _slot0 = poolMulticall?.[5]?.result
+      const slot0 = _slot0 ? {
+        sqrtPriceX96: _slot0[0],  
+        tick: _slot0[1],
+     } : undefined
+
+      const tokenMulticall =
+        token0Address && token1Address
+          ? await client?.multicall({
+              contracts: [
+                {
+                  address: token0Address,
+                  abi: erc20Abi_symbol,
+                  functionName: "symbol",
+                },
+                {
+                  address: token0Address,
+                  abi: erc20Abi_decimals,
+                  functionName: "decimals",
+                },
+                {
+                  address: token1Address,
+                  abi: erc20Abi_symbol,
+                  functionName: "symbol",
+                },
+                {
+                  address: token1Address,
+                  abi: erc20Abi_decimals,
+                  functionName: "decimals",
+                },
+              ],
+            })
+          : undefined;
+
+      const token0Symbol = tokenMulticall?.[0]?.result;
+      const token0Decimals = tokenMulticall?.[1]?.result;
+      const token1Symbol = tokenMulticall?.[2]?.result;
+      const token1Decimals = tokenMulticall?.[3]?.result;
+
+      const token0 =
+        token0Address && token0Symbol && token0Decimals
+          ? new EvmToken({
+              chainId,
+              address: token0Address,
+              symbol: token0Symbol,
+              decimals: token0Decimals,
+              name: token0Symbol,
+            })
+          : undefined;
+
+      const token1 =
+        token1Address && token1Symbol && token1Decimals
+          ? new EvmToken({
+              chainId,
+              address: token1Address,
+              symbol: token1Symbol,
+              decimals: token1Decimals,
+              name: token1Symbol,
+            })
+          : undefined;
+
+      return {
+        factory,
+        fee,
+        tickSpacing,
+        slot0,
+        isSushi,
+        token0,
+        token1,
+      };
+    },
+  });
+};
