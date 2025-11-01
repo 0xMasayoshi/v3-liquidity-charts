@@ -3,7 +3,7 @@
 import type { EChartsOption } from "echarts";
 import ReactEChartsCore from "echarts-for-react/lib/core";
 import { BarChart } from "echarts/charts";
-import { GridComponent, TooltipComponent } from "echarts/components";
+import { DataZoomComponent, GridComponent, TooltipComponent } from "echarts/components";
 import * as echarts from "echarts/core";
 import { CanvasRenderer } from "echarts/renderers";
 import type { TopLevelFormatterParams } from "echarts/types/src/component/tooltip/TooltipModel.js";
@@ -23,7 +23,7 @@ import { useTickChartData } from "./hooks";
 import { Address } from "viem/accounts";
 import { usePrices, useV3Pool } from "@/hooks";
 
-echarts.use([CanvasRenderer, BarChart, TooltipComponent, GridComponent]);
+echarts.use([CanvasRenderer, BarChart, TooltipComponent, GridComponent, DataZoomComponent]);
 
 interface LiquidityChartProps {
   chainId: SushiSwapV3ChainId;
@@ -50,6 +50,8 @@ export const TickChart: FC<LiquidityChartProps> = ({ chainId, address }) => {
       const [token0Data, token1Data] = params as (CallbackDataParams & {
         data: number;
       })[];
+
+      if (token0Data.dataIndex !== token1Data.dataIndex) throw new Error("DATAINDEX MISMATCH")
 
       const token0PriceNode = document.getElementById("token0Price");
       const token1PriceNode = document.getElementById("token1Price");
@@ -87,7 +89,7 @@ export const TickChart: FC<LiquidityChartProps> = ({ chainId, address }) => {
 
   const { data: prices } = usePrices({ chainId });
 
-  const option = useMemo<EChartsOption>(() => {
+  const option = useMemo<EChartsOption | undefined>(() => {
     const token0PriceUSD = pool?.token0.address
       ? prices?.data.get(pool.token0.address.toLowerCase() as Address)
       : undefined;
@@ -104,12 +106,14 @@ export const TickChart: FC<LiquidityChartProps> = ({ chainId, address }) => {
 
     const activeTick = _tickData?.activeRangeData?.tick;
 
+    if (!activeTick) return undefined
+
     const token0Data = token0PriceUSD
       ? (tickData?.map((d) => {
-          // below active => show token0; above active => zero; equal => keep both
+          // above active => show token0; above active => zero; equal => keep both
           if (activeTick === undefined) return d.amount0Locked * token0PriceUSD;
-          if (d.tick < activeTick) return d.amount0Locked * token0PriceUSD;
-          if (d.tick > activeTick) return 0;
+          if (d.tick > activeTick) return d.amount0Locked * token0PriceUSD;
+          if (d.tick < activeTick) return 0;
           // d.tick === activeTick
           return d.amount0Locked * token0PriceUSD;
         }) ?? [])
@@ -117,44 +121,80 @@ export const TickChart: FC<LiquidityChartProps> = ({ chainId, address }) => {
 
     const token1Data = token1PriceUSD
       ? (tickData?.map((d) => {
-          // above active => show token1; below active => zero; equal => keep both
+          // above below => show token1; below active => zero; equal => keep both
           if (activeTick === undefined) return d.amount1Locked * token1PriceUSD;
-          if (d.tick > activeTick) return d.amount1Locked * token1PriceUSD;
-          if (d.tick < activeTick) return 0;
+          if (d.tick < activeTick) return d.amount1Locked * token1PriceUSD;
+          if (d.tick > activeTick) return 0;
           // d.tick === activeTick
           return d.amount1Locked * token1PriceUSD;
         }) ?? [])
       : [];
 
+    console.log('ticks', tickData?.map(data => data.tick))
+    console.log('token0Data', token0Data)
+    console.log('token1Data', token1Data)
+
+    const centerIndex =
+      tickData && activeTick !== undefined
+      ? Math.max(0, tickData.findIndex((d) => d.tick === activeTick))
+      : Math.floor(((tickData?.length ?? 1) - 1) / 2);
+
+    const startIndex = Math.max(0, centerIndex - 20);
+    const endIndex = Math.min((tickData?.length ?? 0) - 1, centerIndex + 20);
+
     return {
       grid: { top: 0, left: 0, right: 0, bottom: 0 },
       tooltip: {
-        trigger: "axis",
-        formatter: onMouseOver,
+      trigger: "axis",
+      formatter: onMouseOver,
       },
       xAxis: {
-        type: "category",
+      type: "category",
+      data: tickData?.map((d) => String(d.tick)) ?? [],
       },
       yAxis: {
-        show: false,
+      show: false,
+      // allow axis to be scaled to the visible data (not forced to include zero)
+      scale: true,
       },
       series: [
-        {
-          name: "token0",
-          type: "bar",
-          stack: "liquidity",
-          data: token0Data,
-          barWidth: 3,
-          itemStyle: { color: "#f472b6", opacity: 0.9 }, // pink
-        },
-        {
-          name: "token1",
-          type: "bar",
-          stack: "liquidity",
-          data: token1Data,
-          barWidth: 3,
-          itemStyle: { color: "#3b82f6", opacity: 0.9 }, // blue
-        },
+      {
+        name: "token0",
+        type: "bar",
+        stack: "liquidity",
+        data: token0Data,
+        barWidth: 10,
+        itemStyle: { color: "#f472b6", opacity: 0.9 }, // pink
+      },
+      {
+        name: "token1",
+        type: "bar",
+        stack: "liquidity",
+        data: token1Data,
+        barWidth: 10,
+        itemStyle: { color: "#3b82f6", opacity: 0.9 }, // blue
+      },
+      ],
+      dataZoom: [
+      {
+        type: "inside",
+        // use startValue/endValue (category indices) instead of start/end (percent)
+        startValue: startIndex,
+        endValue: endIndex,
+        // ensure at least 10 category units are visible when zooming in
+        minValueSpan: 10,
+
+        // Trackpad/mousewheel behavior:
+        // - zoomOnMouseWheel: allow pinch/scroll to zoom
+        // - moveOnMouseWheel: prevent horizontal panning from wheel/trackpad gestures
+        // - moveOnMouseMove: allow click+drag to pan
+        zoomOnMouseWheel: true,
+        moveOnMouseWheel: false,
+        moveOnMouseMove: true,
+
+        // Optional: small safeguard to avoid extremely tiny zoom windows
+        minSpan: 1,
+      },
       ],
     };
   }, [

@@ -1,18 +1,52 @@
-import { useQuery } from '@tanstack/react-query'
-import { Amount } from 'sushi'
+import { useQuery } from "@tanstack/react-query";
+import { Amount } from "sushi";
 import {
-  type EvmCurrency,
   type EvmToken,
   type SushiSwapV3ChainId,
   type SushiSwapV3FeeAmount,
-  SushiSwapV3Pool,
   TICK_SPACINGS,
   TickMath,
   tickToPrice,
-} from 'sushi/evm'
-import { Address, maxUint128, stringify } from 'viem'
-import type { ChartEntry } from './types'
-import { TickProcessed, useV3ActiveLiquidity, useV3Pool } from '@/hooks'
+} from "sushi/evm";
+import { type Address, stringify } from "viem";
+import type { ChartEntry } from "./types";
+import { type TickProcessed, useV3ActiveLiquidity, useV3Pool } from "@/hooks";
+
+// function getCurrentTickAmounts({
+//   currentTick,
+//   sqrtPriceX96,
+//   liquidityActive,
+//   tickSpacing,
+// }: {
+//   currentTick: number
+//   sqrtPriceX96: bigint
+//   liquidityActive: bigint
+//   tickSpacing: number
+// }) {
+//   const Q96 = BigInt(2) ** BigInt(96)
+//   const lowerTick = Math.floor(currentTick / tickSpacing) * tickSpacing
+//   const upperTick = lowerTick + tickSpacing
+
+//   const sqrtLower = TickMath.getSqrtRatioAtTick(lowerTick)
+//   const sqrtUpper = TickMath.getSqrtRatioAtTick(upperTick)
+
+//   // Clamp in case price is slightly outside bounds
+//   let sqrtP = sqrtPriceX96
+//   if (sqrtP < sqrtLower) sqrtP = sqrtLower
+//   if (sqrtP > sqrtUpper) sqrtP = sqrtUpper
+
+//   // token0 = part above current price
+//   const amount0Raw =
+//     (liquidityActive * (sqrtUpper - sqrtP) * Q96) /
+//     (sqrtUpper * sqrtP)
+
+//   // token1 = part below current price
+//   const amount1Raw =
+//     (liquidityActive * (sqrtP - sqrtLower)) /
+//     Q96
+
+//   return { amount0Raw, amount1Raw }
+// }
 
 async function calculateActiveRangeTokensLocked({
   token0,
@@ -21,72 +55,46 @@ async function calculateActiveRangeTokensLocked({
   tick,
   poolData,
 }: {
-  token0: EvmToken
-  token1: EvmToken
-  feeAmount: SushiSwapV3FeeAmount
-  tick: TickProcessed
+  token0: EvmToken;
+  token1: EvmToken;
+  feeAmount: SushiSwapV3FeeAmount;
+  tick: TickProcessed;
   poolData: {
-    sqrtPriceX96?: bigint
-    currentTick: number
-    liquidity: bigint
-  }
+    sqrtPriceX96?: bigint;
+    currentTick: number;
+    liquidity: bigint;
+  };
 }): Promise<{ amount0Locked: number; amount1Locked: number } | undefined> {
-  if (!poolData.currentTick || !poolData.sqrtPriceX96 || !poolData.liquidity) {
-    return undefined
-  }
-
   try {
-    const liquidityGross =
-      tick.liquidityNet >= BigInt(0) ? tick.liquidityNet : -tick.liquidityNet
+    const tickSpacing = TICK_SPACINGS[feeAmount];
+    const lower = tick.tick;
+    const upper = lower + tickSpacing;
 
-    const mockTicks = [
-      {
-        index: tick.tick,
-        liquidityGross,
-        liquidityNet: -tick.liquidityNet,
-      },
-      {
-        index: tick.tick + TICK_SPACINGS[feeAmount],
-        liquidityGross,
-        liquidityNet: tick.liquidityNet,
-      },
-    ]
+    const Q96 = BigInt(2) ** BigInt(96)
+    const sqrtA = TickMath.getSqrtRatioAtTick(lower) // Q96
+    const sqrtB = TickMath.getSqrtRatioAtTick(upper) // Q96
+    let sqrtP = poolData.sqrtPriceX96 as bigint      // Q96
+    const liquidity = tick.liquidityActive           // Q0
 
-    // Initialize pool containing only the active range
-    const pool1 = new SushiSwapV3Pool(
-      token0,
-      token1,
-      feeAmount,
-      poolData.sqrtPriceX96,
-      tick.liquidityActive,
-      poolData.currentTick,
-      mockTicks,
-    )
-    const tickPrice = tickToPrice(token0, token1, poolData.currentTick)
+    // Clamp just in case current sqrt is slightly out of [A,B] due to rounding
+    if (sqrtP < sqrtA) sqrtP = sqrtA
+    if (sqrtP > sqrtB) sqrtP = sqrtB
 
-    // Calculate amount of token0 that would need to be swapped to reach the bottom of the range
-    const bottomOfRangePrice = TickMath.getSqrtRatioAtTick(mockTicks[0].index)
-    const maxAmountToken0 = new Amount(token0, maxUint128)
+    const d0 = sqrtB - sqrtP
+    const d1 = sqrtP - sqrtA
 
-    const token1Amount = (
-      await pool1.getOutputAmount(maxAmountToken0, bottomOfRangePrice)
-    )[0]
-    const amount0Locked = +tickPrice
-      .invert()
-      .getQuote(token1Amount)
-      .toSignificant()
+    // split the active interval at current price:
+    // token0 = inventory in (P, B]
+    // token1 = inventory in [A, P)
+    const amount0Raw = (liquidity * d0 * Q96) / (sqrtB * sqrtP);
+    const amount1Raw = (liquidity * d1) / Q96;
 
-    // Calculate amount of token1 that would need to be swapped to reach the top of the range
-    const topOfRangePrice = TickMath.getSqrtRatioAtTick(mockTicks[1].index)
-    const maxAmountToken1 = new Amount(token1, maxUint128)
-    const token0Amount = (
-      await pool1.getOutputAmount(maxAmountToken1, topOfRangePrice)
-    )[0]
-    const amount1Locked = +tickPrice.getQuote(token0Amount).toSignificant()
+    const amount0Locked = +new Amount(token0, amount0Raw).toString({fixed: 8})
+    const amount1Locked = +new Amount(token1, amount1Raw).toString({fixed: 8})
 
     return { amount0Locked, amount1Locked }
   } catch {
-    return { amount0Locked: 0, amount1Locked: 0 }
+    return { amount0Locked: 0, amount1Locked: 0 };
   }
 }
 
@@ -96,64 +104,39 @@ async function calculateTokensLocked({
   feeAmount,
   tick,
 }: {
-  token0: EvmToken
-  token1: EvmToken
-  feeAmount: SushiSwapV3FeeAmount
-  tick: TickProcessed
+  token0: EvmToken;
+  token1: EvmToken;
+  feeAmount: SushiSwapV3FeeAmount;
+  tick: TickProcessed;
 }) {
   try {
-    const tickSpacing = TICK_SPACINGS[feeAmount]
-    const liquidityNet = tick.liquidityNet
-    const liquidityGross = liquidityNet >= BigInt(0) ? liquidityNet : -liquidityNet
-    const sqrtPriceX96 = TickMath.getSqrtRatioAtTick(tick.tick)
+    const tickSpacing = TICK_SPACINGS[feeAmount];
+    const lower = tick.tick;
+    const upper = tick.tick + tickSpacing;
 
-    const mockTicks = [
-      {
-        index: tick.tick,
-        liquidityGross,
-        liquidityNet: -tick.liquidityNet,
-      },
-      {
-        index: tick.tick + tickSpacing,
-        liquidityGross,
-        liquidityNet: tick.liquidityNet,
-      },
-    ]
+    const Q96 = BigInt(2) ** BigInt(96)
+    const sqrtA = TickMath.getSqrtRatioAtTick(lower) // Q96
+    const sqrtB = TickMath.getSqrtRatioAtTick(upper) // Q96
+    const liquidity = tick.liquidityActive           // Q0
 
-    // Pool containing only the current range
-    const pool = new SushiSwapV3Pool(
-      token0,
-      token1,
-      feeAmount,
-      sqrtPriceX96,
-      tick.liquidityActive,
-      tick.tick,
-      mockTicks,
-    )
+    const delta = sqrtB - sqrtA
+    // inventory inside [lower, upper) (round-down like core math)
+    const amount0Raw = (liquidity * delta * Q96) / (sqrtB * sqrtA); // L*Q96*(B-A)/(B*A)
+    const amount1Raw = (liquidity * delta) / Q96;                   // L*(B-A)/Q96
 
-    const nextSqrtX96 = TickMath.getSqrtRatioAtTick(tick.tick - tickSpacing)
-    const maxAmountToken0 = new Amount(token0, maxUint128)
-    const token1Amount = (
-      await pool.getOutputAmount(maxAmountToken0, nextSqrtX96)
-    )[0]
-
-    const amount1Locked = parseFloat(token1Amount.toString())
-
-    const amount0Locked = parseFloat(tick.sdkPrice
-      .invert()
-      .getQuote(token1Amount)
-      .toString())
+    const amount0Locked = +new Amount(token0, amount0Raw).toSignificant()
+    const amount1Locked = +new Amount(token1, amount1Raw).toSignificant()
 
     return { amount0Locked, amount1Locked }
   } catch {
-    return { amount0Locked: 0, amount1Locked: 0 }
+    return { amount0Locked: 0, amount1Locked: 0 };
   }
 }
 
 interface UseTickChartData {
-  chainId: SushiSwapV3ChainId
-  address: Address | undefined
-  enabled?: boolean
+  chainId: SushiSwapV3ChainId;
+  address: Address | undefined;
+  enabled?: boolean;
 }
 
 export function useTickChartData({
@@ -163,23 +146,20 @@ export function useTickChartData({
 }: UseTickChartData) {
   const { data, isLoading: _isPoolLoading } = useV3Pool({ address, chainId });
   const { pool } = data ?? { pool: undefined, factory: undefined };
-  
+
   const activeLiquidityQuery = useV3ActiveLiquidity({
     chainId,
     address,
     enabled,
-  })
+  });
 
   const liquidityTicksChartQuery = useQuery({
-    enabled:
-      enabled &&
-      !!activeLiquidityQuery.data &&
-      !!pool,
+    enabled: enabled && !!activeLiquidityQuery.data && !!pool,
     queryKey: [
-      'v3-ticks-chart',
+      "v3-ticks-chart",
       {
         chainId,
-        pool:`${pool?.chainId}:${pool?.token0.address}/${pool?.token1.address}/${pool?.fee}`,
+        pool: `${pool?.chainId}:${pool?.token0.address}/${pool?.token1.address}/${pool?.fee}`,
         length: activeLiquidityQuery.data?.length,
         currentTick: activeLiquidityQuery.currentTick,
         liquidity: activeLiquidityQuery.liquidity,
@@ -189,37 +169,31 @@ export function useTickChartData({
     ],
     queryKeyHashFn: stringify,
     queryFn: async () => {
-      if (!activeLiquidityQuery.data || !pool)
-        throw new Error(null as never)
+      if (!activeLiquidityQuery.data || !pool) throw new Error(null as never);
 
-      const isReversed = true // xxTODO (fuck you codex)
+      const isReversed = false; // xxTODO
 
-      let activeRangePercentage: number | undefined = undefined
-      let activeRangeIndex: number | undefined = undefined
+      let activeRangePercentage: number | undefined = undefined;
+      let activeRangeIndex: number | undefined = undefined;
 
       const chartData = await Promise.all(
         activeLiquidityQuery.data.map(async (tick, index) => {
-          // based on index
-          const fakeTime = isReversed
-            ? index * 1000
-            : (activeLiquidityQuery.data.length - index) * 1000
-          const isActive = activeLiquidityQuery.activeTick === tick.tick
+          const isActive = activeLiquidityQuery.activeTick === tick.tick;
 
-          let price0 = tickToPrice(pool.token0, pool.token1, tick.tick)
-          let price1 = price0.invert()
+          let price0 = tickToPrice(pool.token0, pool.token1, tick.tick);
+          let price1 = price0.invert();
 
           if (
             isActive &&
             activeLiquidityQuery.activeTick &&
             activeLiquidityQuery.currentTick
           ) {
-            activeRangeIndex = index
+            activeRangeIndex = index;
             activeRangePercentage =
-              (activeLiquidityQuery.currentTick - tick.tick) /
-              pool.tickSpacing
+              (activeLiquidityQuery.currentTick - tick.tick) / pool.tickSpacing;
 
-            price0 = tickToPrice(pool.token0, pool.token1, tick.tick)
-            price1 = price0.invert()
+            price0 = tickToPrice(pool.token0, pool.token1, tick.tick);
+            price1 = price0.invert();
           }
 
           const { amount0Locked, amount1Locked } = await calculateTokensLocked({
@@ -227,28 +201,23 @@ export function useTickChartData({
             token1: pool.token1,
             feeAmount: pool.fee,
             tick,
-          })
+          });
 
           return {
             tick: tick.tick,
             liquidity: Number(tick.liquidityActive),
             price0: +price0.toSignificant(),
             price1: +price1.toSignificant(),
-            time: fakeTime,
             amount0Locked,
             amount1Locked,
-          } satisfies ChartEntry
+          } satisfies ChartEntry;
         }),
-      )
-
-      // offset previous bar with next bar’s locked amounts (Uniswap behavior)
-      for (let i = 1; i < chartData.length; i++) {
-        chartData[i - 1].amount0Locked = chartData[i].amount0Locked
-        chartData[i - 1].amount1Locked = chartData[i].amount1Locked
-      }
+      );
 
       const activeRangeData =
-        activeRangeIndex !== undefined ? chartData[activeRangeIndex] : undefined
+        activeRangeIndex !== undefined
+          ? chartData[activeRangeIndex]
+          : undefined;
 
       // For active range, adjust amounts locked to adjust for where current tick/price is within the range
       if (activeRangeIndex !== undefined && activeRangeData) {
@@ -262,22 +231,22 @@ export function useTickChartData({
             liquidity: activeLiquidityQuery.liquidity,
             sqrtPriceX96: activeLiquidityQuery.sqrtPriceX96,
           },
-        })
-        chartData[activeRangeIndex] = { ...activeRangeData, ...activeTickTvl }
+        });
+        chartData[activeRangeIndex] = { ...activeRangeData, ...activeTickTvl };
       }
 
       // Reverse data so that token0 is on the left by default
       if (!isReversed) {
-        chartData.reverse()
+        chartData.reverse();
       }
 
       return {
         chartData: chartData.filter((t) => t.liquidity > 0),
         activeRangeData,
         activeRangePercentage,
-      }
+      };
     },
-  })
+  });
 
   return {
     tickData: liquidityTicksChartQuery.data,
@@ -287,5 +256,5 @@ export function useTickChartData({
       liquidityTicksChartQuery.isLoading ||
       !liquidityTicksChartQuery.data,
     isError: liquidityTicksChartQuery.error || activeLiquidityQuery.error,
-  }
+  };
 }

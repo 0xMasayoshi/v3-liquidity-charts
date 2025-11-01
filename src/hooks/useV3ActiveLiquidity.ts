@@ -95,7 +95,7 @@ export const useV3ActiveLiquidity = ({
   enabled?: boolean
 }) => {
   const { data, isLoading: isPoolLoading } = useV3Pool({ address, chainId });
-  const { pool, factory } = data ?? { pool: undefined, factory: undefined };
+  const { pool } = data ?? { pool: undefined, factory: undefined };
 
   // Find nearest valid tick for pool in case tick is not initialized.
   const activeTick = useMemo(
@@ -107,7 +107,7 @@ export const useV3ActiveLiquidity = ({
     isLoading,
     error,
     data: ticks,
-  } = useV3Ticks({ pool, factory, chainId });
+  } = useV3Ticks({ pool, poolAddress: address, chainId });
 
   return useMemo(() => {
     if (

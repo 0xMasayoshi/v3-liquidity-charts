@@ -53,13 +53,13 @@ const getPopulatedTicksInWordAbiShard = [
 export function useV3Ticks({
   chainId,
   pool,
-  factory,
+  poolAddress,
   numSurroundingTicks = 1250,
   enabled = true,
 }: {
   chainId: SushiSwapV3ChainId;
   pool: SushiSwapV3Pool | undefined;
-  factory: Address | undefined;
+  poolAddress: Address | undefined;
   numSurroundingTicks?: number;
   enabled?: boolean;
 }) {
@@ -69,19 +69,6 @@ export function useV3Ticks({
     typeof pool?.tickCurrent === "number" && tickSpacing
       ? nearestUsableTick(pool?.tickCurrent, tickSpacing)
       : undefined;
-
-  const poolAddress = useMemo(
-    () =>
-      pool && factory
-        ? computeSushiSwapV3PoolAddress({
-            factoryAddress: factory,
-            tokenA: pool.token0,
-            tokenB: pool.token1,
-            fee: pool.fee,
-          })
-        : undefined,
-    [pool, factory],
-  );
 
   const minIndex = useMemo(
     () =>

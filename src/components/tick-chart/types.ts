@@ -1,5 +1,5 @@
 export interface ChartEntry {
-  time: number
+  // time: number
   tick: number
   price0: number
   price1: number
