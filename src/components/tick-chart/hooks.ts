@@ -114,7 +114,7 @@ async function calculateTokensLocked({
     const lower = tick.tick;
     const upper = tick.tick + tickSpacing;
 
-    const Q96 = BigInt(2) ** BigInt(96)
+    const Q96 = BigInt(1) << BigInt(96)
     const sqrtA = TickMath.getSqrtRatioAtTick(lower) // Q96
     const sqrtB = TickMath.getSqrtRatioAtTick(upper) // Q96
     const liquidity = tick.liquidityActive           // Q0
@@ -124,8 +124,8 @@ async function calculateTokensLocked({
     const amount0Raw = (liquidity * delta * Q96) / (sqrtB * sqrtA); // L*Q96*(B-A)/(B*A)
     const amount1Raw = (liquidity * delta) / Q96;                   // L*(B-A)/Q96
 
-    const amount0Locked = +new Amount(token0, amount0Raw).toSignificant()
-    const amount1Locked = +new Amount(token1, amount1Raw).toSignificant()
+    const amount0Locked = parseFloat(new Amount(token0, amount0Raw).toString({ fixed: 8 }))
+    const amount1Locked = parseFloat(new Amount(token1, amount1Raw).toString({ fixed: 8 }))
 
     return { amount0Locked, amount1Locked }
   } catch {
